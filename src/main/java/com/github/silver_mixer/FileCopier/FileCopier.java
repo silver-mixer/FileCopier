@@ -152,7 +152,7 @@ public class FileCopier{
 						fileHashes.add(md5);
 						pstate.setString(1, md5);
 						pstate.setString(2, f.getAbsolutePath());
-						pstate.setString(3, target.toAbsolutePath().toString() + "/" + f.getName());
+						pstate.setString(3, newFilePath.toAbsolutePath().toString());
 						pstate.addBatch();
 						System.out.println("[コピー] " + source.relativize(f.toPath()).toString() + " => " + newFilePath.toAbsolutePath().toString());
 					}
