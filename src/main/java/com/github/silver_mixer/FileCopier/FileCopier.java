@@ -27,8 +27,8 @@ public class FileCopier{
 			"",
 			"オプション:",
 			"  --help        ヘルプメッセージを表示",
-			"  -d <name>     データベースにコピー情報を保存",
-			"  -e <number>   処理を中止する連続エラー回数(初期値:0(=なし))"};
+			"  -d, --db <name>     データベースにコピー情報を保存",
+			"  -e, --error <number>   処理を中止する連続エラー回数(初期値:0(=なし))"};
 	private static Path source, target;
 	private static Statement state;
 	private static PreparedStatement pstate;
@@ -41,13 +41,13 @@ public class FileCopier{
 			if(args[i].equals("--help")) {
 				printHelpMessage();
 				System.exit(0);
-			}else if(args[i].equals("-d")) {
+			}else if(args[i].equals("-d") || args[i].equals("--db")) {
 				if(i + 1 == args.length) {
 					printHelpMessage();
 					System.exit(1);
 				}
 				dbname = args[++i];
-			}else if(args[i].equals("-e")) {
+			}else if(args[i].equals("-e") || args[i].equals("--error")) {
 				if(i + 1 == args.length) {
 					printHelpMessage();
 					System.exit(1);
