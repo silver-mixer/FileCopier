@@ -75,7 +75,9 @@ public class FileCopier{
 				System.out.println("dbfile: " + dbfile.getAbsolutePath());
 				Connection con = DriverManager.getConnection("jdbc:sqlite:" + dbfile.getAbsolutePath());
 				state = con.createStatement();
+				// テーブルが存在しない場合、テーブルを新規作成
 				state.executeUpdate("CREATE TABLE IF NOT EXISTS transferfiles (hash TEXT NOT NULL PRIMARY KEY, source TEXT, destination TEXT)");
+				// ファイル情報記録用のPrepareStatementを作成
 				pstate = con.prepareStatement("INSERT INTO transferfiles VALUES (?, ?, ?)");
 			}catch(URISyntaxException | SQLException e) {
 				e.printStackTrace();
@@ -89,6 +91,7 @@ public class FileCopier{
 		System.out.println("[情報] SOURCE: " + sourcePath);
 		System.out.println("[情報] TARGET: " + targetPath);
 		if(!target.toFile().exists()) {
+			// コピー先パスが存在しない場合、ディレクトリを作成
 			try {
 				Files.createDirectories(target);
 			}catch(IOException e) {
@@ -97,6 +100,7 @@ public class FileCopier{
 				System.exit(1);
 			}
 		}
+		// コピー処理実行
 		copyAllFilesRecursively(source);
 		try {
 			pstate.executeBatch();
@@ -117,6 +121,7 @@ public class FileCopier{
 			if(f.isDirectory()) {
 				copyAllFilesRecursively(f.toPath());
 			}else {
+				// ファイルのMD5ハッシュ値を取得
 				String md5 = "";
 				try(FileInputStream fis = new FileInputStream(f)) {
 					md5 = DigestUtils.md5Hex(fis);
@@ -127,8 +132,10 @@ public class FileCopier{
 				}
 				try {
 					if(fileHashes.contains(md5) || state.executeQuery("SELECT * FROM transferfiles WHERE hash = '" + md5 + "'").next()) {
+						// MD5ハッシュ値が、コピー済みのリストに含まれる、もしくは、transferfilesテーブルに存在する場合、変更なし(コピーしない)
 						System.out.println("[変更なし] " + source.relativize(f.toPath()).toString());
 					}else {
+						// リネーム処理
 						cal.setTimeInMillis(f.lastModified());
 						String year = String.format("%04d", cal.get(Calendar.YEAR)),
 								month = String.format("%02d", cal.get(Calendar.MONTH) + 1),
@@ -140,6 +147,7 @@ public class FileCopier{
 								millisecond = String.format("%03d", cal.get(Calendar.MILLISECOND));
 						String fileName = year + month + date + "_" + hour24 + minute + second;
 						String fileExt = (f.getName().contains(".") ? f.getName().substring(f.getName().lastIndexOf(".")) : "");
+						// コピー先に同名のファイルが存在する場合、重複がなくなるまで末尾の数字を増やす
 						int conflict = 0;
 						Path newFilePath = Paths.get(target.toString(), fileName + "_" + String.format("%03d", conflict)+ fileExt);
 						while(newFilePath.toFile().exists()) {
@@ -148,8 +156,11 @@ public class FileCopier{
 						}
 						Files.copy(f.toPath(), newFilePath, StandardCopyOption.REPLACE_EXISTING);
 						newFilePath.toFile().setLastModified(f.lastModified());
+						// エラー回数を0に戻す
 						curFailCount = 0;
+						// MD5ハッシュ値をコピー済みリストに追加
 						fileHashes.add(md5);
+						// ファイル情報のステートメントをバッチ追加
 						pstate.setString(1, md5);
 						pstate.setString(2, f.getAbsolutePath());
 						pstate.setString(3, newFilePath.toAbsolutePath().toString());
@@ -162,8 +173,10 @@ public class FileCopier{
 				}catch(IOException e) {
 					e.printStackTrace();
 					System.out.println("[エラー] ファイルのコピー中にエラーが発生しました。");
+					// エラー回数を増加
 					curFailCount++;
 					if(curFailCount == failStopCount) {
+						// エラー回数が許容値を超えた場合、処理を中止
 						System.out.println("[情報] エラーが連続で" + failStopCount + "回発生したため、処理を中止します。");
 					}
 				}
