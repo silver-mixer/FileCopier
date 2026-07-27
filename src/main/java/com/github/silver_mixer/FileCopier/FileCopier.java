@@ -29,11 +29,12 @@ public class FileCopier{
 			"  --help        ヘルプメッセージを表示",
 			"  -d, --db <name>     データベースにコピー情報を保存",
 			"  -e, --error <number>   処理を中止する連続エラー回数(初期値:0(=なし))"};
+	private static final int BATCH_LIMIT = 100;
 	private static Path source, target;
 	private static Statement state;
 	private static PreparedStatement pstate;
 	private static Set<String> fileHashes = new HashSet<String>();
-	private static int failStopCount = -1, curFailCount = 0;
+	private static int failStopCount = -1, curFailCount = 0, batchCount = 0;
 	
 	public static void main(String[] args) {
 		String dbname = null, sourcePath = null, targetPath = null;
@@ -101,14 +102,18 @@ public class FileCopier{
 			}
 		}
 		// コピー処理実行
+		batchCount = 0;
 		copyAllFilesRecursively(source);
-		try {
-			pstate.executeBatch();
-			System.out.println("[情報] データベースを更新しました。");
-		}catch(SQLException e) {
-			e.printStackTrace();
-			System.out.println("[エラー] データベースの保存に失敗。");
-			System.exit(1);
+		if(batchCount > 0) {
+			// バッチ件数が0以上の場合、
+			try {
+				pstate.executeBatch();
+				System.out.println("[情報] " + batchCount + "件のデータをコミット。");
+			}catch(SQLException e) {
+				e.printStackTrace();
+				System.out.println("[エラー] データのコミットに失敗。");
+				System.exit(1);
+			}
 		}
 		System.out.println("[情報] 操作が完了しました。");
 	}
@@ -156,6 +161,7 @@ public class FileCopier{
 						}
 						Files.copy(f.toPath(), newFilePath, StandardCopyOption.REPLACE_EXISTING);
 						newFilePath.toFile().setLastModified(f.lastModified());
+						System.out.println("[コピー] " + source.relativize(f.toPath()).toString() + " => " + newFilePath.toAbsolutePath().toString());
 						// エラー回数を0に戻す
 						curFailCount = 0;
 						// MD5ハッシュ値をコピー済みリストに追加
@@ -165,7 +171,19 @@ public class FileCopier{
 						pstate.setString(2, f.getAbsolutePath());
 						pstate.setString(3, newFilePath.toAbsolutePath().toString());
 						pstate.addBatch();
-						System.out.println("[コピー] " + source.relativize(f.toPath()).toString() + " => " + newFilePath.toAbsolutePath().toString());
+						batchCount++;
+						if(batchCount == BATCH_LIMIT) {
+							// バッチ登録数が上限に達した場合、バッチ実行
+							try {
+								pstate.executeBatch();
+								System.out.println("[情報] " + batchCount + "件のデータをコミット。");
+							}catch(SQLException e) {
+								e.printStackTrace();
+								System.out.println("[エラー] データのコミットに失敗。");
+								System.exit(1);
+							}
+							batchCount = 0;
+						}
 					}
 				}catch(SQLException e) {
 					e.printStackTrace();
