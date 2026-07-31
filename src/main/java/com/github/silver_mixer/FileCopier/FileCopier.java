@@ -11,6 +11,7 @@ import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Calendar;
@@ -29,6 +30,7 @@ public class FileCopier{
 			"  --help        ヘルプメッセージを表示",
 			"  -d, --db <name>     データベースにコピー情報を保存",
 			"  -e, --error <number>   処理を中止する連続エラー回数(初期値:0(=なし))"};
+	private static final int DB_VERSION = 1;
 	private static final int BATCH_LIMIT = 100;
 	private static Path source, target;
 	private static Statement state;
@@ -76,10 +78,9 @@ public class FileCopier{
 				System.out.println("dbfile: " + dbfile.getAbsolutePath());
 				Connection con = DriverManager.getConnection("jdbc:sqlite:" + dbfile.getAbsolutePath());
 				state = con.createStatement();
-				// テーブルが存在しない場合、テーブルを新規作成
-				state.executeUpdate("CREATE TABLE IF NOT EXISTS transferfiles (hash TEXT NOT NULL PRIMARY KEY, source TEXT, destination TEXT)");
+				prepareDB(con);
 				// ファイル情報記録用のPrepareStatementを作成
-				pstate = con.prepareStatement("INSERT INTO transferfiles VALUES (?, ?, ?)");
+				pstate = con.prepareStatement("INSERT INTO transferfiles(hash, size, last_modified, source, destination) VALUES (?, ?, ?, ?, ?)");
 			}catch(URISyntaxException | SQLException e) {
 				e.printStackTrace();
 				System.out.println("[エラー] データベースの生成に失敗。");
@@ -114,6 +115,13 @@ public class FileCopier{
 				System.out.println("[エラー] データのコミットに失敗。");
 				System.exit(1);
 			}
+		}
+		try {
+			// 最終更新日時を更新
+			state.executeUpdate("UPDATE information SET value = '" + System.currentTimeMillis() + "' WHERE key = 'updated_at'");
+		}catch(SQLException e) {
+			e.printStackTrace();
+			System.out.println("[エラー] データのコミットに失敗。");
 		}
 		System.out.println("[情報] 操作が完了しました。");
 	}
@@ -168,8 +176,10 @@ public class FileCopier{
 						fileHashes.add(md5);
 						// ファイル情報のステートメントをバッチ追加
 						pstate.setString(1, md5);
-						pstate.setString(2, f.getAbsolutePath());
-						pstate.setString(3, newFilePath.toAbsolutePath().toString());
+						pstate.setLong(2, f.length());
+						pstate.setLong(3, f.lastModified());
+						pstate.setString(4, f.getAbsolutePath());
+						pstate.setString(5, newFilePath.toAbsolutePath().toString());
 						pstate.addBatch();
 						batchCount++;
 						if(batchCount == BATCH_LIMIT) {
@@ -204,5 +214,50 @@ public class FileCopier{
 	
 	public static void printHelpMessage() {
 		for(String s: HELP_MESSAGE)System.out.println(s);
+	}
+	
+	private static void prepareDB(Connection con) throws SQLException {
+		ResultSet result = state.executeQuery("SELECT * FROM sqlite_master WHERE TYPE = 'table' AND NAME = 'transferfiles'");
+		if(result.next()) {
+			// transferfilesテーブルが存在する場合
+			int dbVersion = 0;
+			result = state.executeQuery("SELECT * FROM sqlite_master WHERE TYPE = 'table' AND NAME = 'information'");
+			if(result.next()) {
+				// informationテーブルが存在する場合
+				// DBバージョンを取得
+				result = state.executeQuery("SELECT value FROM information WHERE key = 'version'");
+				if(result.next()) {
+					dbVersion = Integer.parseInt(result.getString("value"));
+				}else {
+					System.out.println("[エラー] DBバージョンの取得に失敗。");
+					System.exit(1);
+				}
+				System.out.println("[情報] DBバージョン: " + dbVersion);
+			}else {
+				// informationテーブルが存在しない場合(DB_VERSION=0)
+				// informationテーブルを新規作成
+				System.out.println("[情報] DBバージョン: " + dbVersion);
+				System.out.println("[警告] このバージョンからの移行は現在サポートされていません。");
+				state.executeUpdate("CREATE TABLE IF NOT EXISTS information (key TEXT NOT NULL PRIMARY KEY, value TEXT)");
+				state.executeUpdate("INSERT INTO information VALUES('version', '1')");
+				state.executeUpdate("INSERT INTO information VALUES('updated_at', NULL)");
+			}
+			migrateDB(dbVersion);
+		}else {
+			// transferfilesテーブルが存在しない場合(新規作成)
+			// transferfilesテーブルを作成
+			System.out.println("[情報] DBを新規作成");
+			state.executeUpdate("CREATE TABLE IF NOT EXISTS transferfiles (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, hash TEXT NOT NULL, size INTEGER NOT NULL, last_modified INTEGER NOT NULL, source TEXT NOT NULL, destination TEXT NOT NULL)");
+			// informationテーブルを作成
+			state.executeUpdate("CREATE TABLE IF NOT EXISTS information (key TEXT NOT NULL PRIMARY KEY, value TEXT)");
+			state.executeUpdate("INSERT INTO information VALUES('version', '1')");
+			state.executeUpdate("INSERT INTO information VALUES('updated_at', NULL)");
+		}
+	}
+	
+	private static void migrateDB(int dbVersion){
+		// DBバージョンが最新の場合、何もしない
+		if(dbVersion == DB_VERSION)return;
+		// TODO: 旧DBからの移行処理
 	}
 }
