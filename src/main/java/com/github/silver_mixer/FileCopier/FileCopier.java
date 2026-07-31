@@ -227,7 +227,7 @@ public class FileCopier{
 				// DBバージョンを取得
 				result = state.executeQuery("SELECT value FROM information WHERE key = 'version'");
 				if(result.next()) {
-					dbVersion = Integer.parseInt(result.getString("value"));
+					dbVersion = result.getInt("value");
 				}else {
 					System.out.println("[エラー] DBバージョンの取得に失敗。");
 					System.exit(1);
